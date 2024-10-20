@@ -395,10 +395,8 @@
                 localStorage.setItem('PyramidsGameHistory', JSON.stringify(gameHistory));
                 collectLink.click();
             } else if (mainGameBoard) {
-                gameBoard.logBoardState();
                 const nextMove = pickMove(gameBoard);
                 nextMove.click();
-
             } else {
                 await GM.deleteValue('isRunning');
             }
