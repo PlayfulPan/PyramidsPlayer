@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Neopets Pyramids Board Reader Enhanced
+// @name         Neopets Pyramids Player
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Reads the board state of Neopets Pyramids, logs it to the console, maintains an internal structured representation with integer ranks, and provides functions to interact with specific board positions, the draw pile, and the stack.
-// @author       YourName
+// @version      1.0
+// @description  Plays Pyramids
+// @author       Pan
 // @match        https://www.neopets.com/games/pyramids/pyramids.phtml*
 // @grant GM_setValue
 // @grant GM_getValue
