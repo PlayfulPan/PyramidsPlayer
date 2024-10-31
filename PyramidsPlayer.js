@@ -242,14 +242,8 @@
         return sequences;
     }
 
-    function pickMove(board) {
-        const possiblePlays = findConsecutivePlays(board.stackCard, board);
-
-        if (possiblePlays.length === 0) {
-            return board.drawPile;
-        } else {
-            const cardsRevealed = possiblePlays.map((play) => {
-                const faceDownCards = board.getFaceDownCards();
+    function countRevealedCards(play, board) {
+        const faceDownCards = board.getFaceDownCards();
                 let revealedCards = 0;
                 for (let i = 0; i < faceDownCards.length; i++) {
                     let card = faceDownCards[i];
@@ -261,8 +255,18 @@
                     }
                 }
                 return revealedCards;
+    }
+
+    function pickMove(board) {
+        const possiblePlays = findConsecutivePlays(board.stackCard, board);
+
+        if (possiblePlays.length === 0) {
+            return board.drawPile;
+        } else {
+            possiblePlays.sort((a,b) => {
+                return (countRevealedCards(b, board)-countRevealedCards(a, board))*1000000+(countRevealedCards([b[0]],board)-countRevealedCards([a[0]],board))*10000+(b[0].row-a[0].row);
             });
-            return possiblePlays[cardsRevealed.indexOf(Math.max(...cardsRevealed))][0];
+            return possiblePlays[0][0];
         }
     }
 
@@ -325,8 +329,8 @@
         });
         customStatsTable.appendChild(dataRow);
 
-        
-        newCell.appendChild(customStatsTable); 
+
+        newCell.appendChild(customStatsTable);
     }
 
     function addCustomButtons(mainGameBoard, isRunning) {
