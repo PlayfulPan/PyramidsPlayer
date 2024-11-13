@@ -4,7 +4,7 @@
 // @version      1.0
 // @description  Plays Pyramids
 // @author       Pan
-// @match        https://www.neopets.com/games/pyramids/pyramids.phtml*
+// @match        https://www.neopets.com/games/pyramids/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM.setValue
@@ -14,6 +14,13 @@
 
 (function () {
     'use strict';
+
+    var autoReload = GM_getValue('autoReload', false);
+    var startNewGame = GM_getValue('startNewGame', false);
+    var reloadDelay = GM_getValue('reloadDelay', 5000);
+    var reloadTimeout = null;
+
+
 
     class Game {
         constructor(mainGameBoardElement, seenCards = []) {
@@ -142,7 +149,7 @@
             console.groupEnd();
         }
 
-        
+
 
     }
 
@@ -204,16 +211,126 @@
         }
     }
 
+    function addGUI(mainGameBoard) {
+
+        const gui = document.createElement('div');
+
+        gui.style.marginTop = '10px';
+        gui.style.marginBottom = '10px';
+        gui.style.textAlign = 'center';
+
+
+
+        const delaySettings = document.createElement('div');
+        
+        
+
+        const minClickDelayInput = document.createElement('input');
+        minClickDelayInput.type = 'number';
+        minClickDelayInput.min = 0;
+        minClickDelayInput.id = 'minClickDelayInput';
+
+        const minClickDelayLabel = document.createElement('label');
+        minClickDelayLabel.textContent = 'Min. (ms): ';
+        minClickDelayLabel.htmlFor = minClickDelayInput.id;
+
+        const minClickDelayDiv = document.createElement('div');
+        minClickDelayDiv.appendChild(minClickDelayLabel);
+        minClickDelayDiv.appendChild(minClickDelayInput);
+
+
+        const maxClickDelayInput = document.createElement('input');
+        maxClickDelayInput.type = 'number';
+        maxClickDelayInput.min = 0;
+        maxClickDelayInput.id = 'minClickDelayInput';
+
+        const maxClickDelayLabel = document.createElement('label');
+        maxClickDelayLabel.textContent = 'Max. (ms): ';
+        maxClickDelayLabel.htmlFor = minClickDelayInput.id;
+
+        const maxClickDelayDiv = document.createElement('div');
+        maxClickDelayDiv.appendChild(maxClickDelayLabel);
+        maxClickDelayDiv.appendChild(maxClickDelayInput);
+
+
+
+        
+
+        delaySettings.appendChild(minClickDelayDiv);
+        delaySettings.appendChild(maxClickDelayDiv);
+
+
+        gui.append
+
+        mainGameBoard.parentNode.insertBefore(gui, mainGameBoard.nextSibling);
+
+    }
+
+
+    function scheduleReload(delay) {
+        if (autoReload && !reloadTimeout) {
+            reloadTimeout = setTimeout(() => {
+                location.reload();
+            }, delay);
+        }
+    }
+
+
+    function determinePageType() {
+        const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
+        const continueGameButton = document.querySelector('input[type="submit"][value="Continue Playing"]');
+        const playPyramidsButton = document.querySelector('input[type="submit"][value="Play Pyramids!"]');
+        const playPyramidsAgainButton = document.querySelector('input[type="submit"][value="Play Pyramids Again!"]');
+
+        if (mainGameBoard) {
+            return 'ACTIVE_GAME'; // Main game board 
+        } else if (continueGameButton) {
+            return 'CONTINUE_GAME'; // Continue game page
+        } else if (playPyramidsButton) {
+            return 'START_GAME'; // Start game page
+        } else if (playPyramidsAgainButton) {
+            return 'GAME_OVER'; // Game over page
+        } else {
+            return 'UNKNOWN';
+        }
+    }
+
     // Wait until the DOM is fully loaded before initializing
     window.addEventListener('load', function () {
-        const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
-        if (!mainGameBoard) {
-            console.error('Main game board element not found.');
-            return;
-        }
+        const pageType = determinePageType();
 
-        const seenCards = []; // You might want to load this from storage if needed
-        const game = new Game(mainGameBoard, seenCards);
-        game.logBoardState();
+        switch (pageType) {
+            case 'ACTIVE_GAME':
+                console.log('Active Game');
+                const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
+                addGUI(mainGameBoard);
+                break;
+
+            case 'CONTINUE_GAME':
+                console.log('Continue Game');
+                const continuePlayingButton = document.querySelector('input[type="submit"][value="Continue Playing"]');
+                const cancelCurrentGameButton = document.querySelector('input[type="submit"][value="Cancel Current Game"]');
+                if (startNewGame) {
+                    cancelCurrentGameButton.click();
+                }
+                break;
+
+            case 'START_GAME':
+                console.log('Start Game');
+                const playPyramidsButton = document.querySelector('input[type="submit"][value="Play Pyramids!"]');
+                if (startNewGame) {
+                    GM_deleteValue('startNewGame');
+                    playPyramidsButton.click();
+                }
+                break;
+
+            case 'GAME_OVER':
+                console.log('Game Over');
+                break;
+
+            case 'UNKNOWN':
+                console.log('Unknown Page');
+                break;
+        }
     });
 })();
