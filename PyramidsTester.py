@@ -1,6 +1,5 @@
 import multiprocessing as mp
 import random
-import matplotlib.pyplot as plt
 
 # Card class representing each card in the deck
 
@@ -40,79 +39,94 @@ class Deck:
 
 
 class Pyramid:
+    class Space:
+        def __init__(self, location):
+            rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
+            
+            self.location = location
+            self.position = rowAdjustment[location[0]-1] + location[1]
+
+            self.card = None
+            self.type = 'EMPTY'
+
+            self.children = []
+            self.parents = []
+        
+        def __str__(self):
+            if self.type == 'FACE_UP':
+                return str(self.card)
+            elif self.type == 'FACE_DOWN':
+                return '🂠'
+            elif self.type == 'EMPTY':
+                return '⬜'
+            
+        def update(self):
+            if self.type == 'FACE_DOWN':
+                if all(child.type == 'EMPTY' for child in self.children):
+                    self.type = 'FACE_UP'
+        
+        def clear(self):
+            self.card = None
+            self.type = 'EMPTY'
+            
+
     def __init__(self):
-        self.rows = [[{'card': None, 'type': 'empty'}]
-                     * i for i in range(1, 8)]
+        self.rows = []
+        self.spaces = []
+        for i in range(1, 8):
+            row = []
+            for j in range(1, i+1):
+                space = self.Space((i, j))
+                row.append(space)
+                self.spaces.append(space)
+            self.rows.append(row)
+        
+        for i in range(6):
+            for j in range(i+1):
+                self.rows[i][j].children.append(self.rows[i+1][j])
+                self.rows[i][j].children.append(self.rows[i+1][j+1])
+                self.rows[i+1][j].parents.append(self.rows[i][j])
+                self.rows[i+1][j+1].parents.append(self.rows[i][j])
 
     def dealPyramid(self, deck):
-        for row in self.rows:
-            for i in range(len(row)):
-                if len(row) < 7:
-                    row[i] = {'card': deck.draw_card(), 'type': 'face_down'}
-                else:
-                    row[i] = {'card': deck.draw_card(), 'type': 'face_up'}
+        for space in self.spaces:
+            space.card = deck.draw_card()
+            space.type = 'FACE_DOWN'
+        self.revealCards()
 
     def revealCards(self):
-        for i in range(len(self.rows)-1):
-            for j in range(len(self.rows[i])):
-                if self.rows[i][j]['type'] == 'face_down':
-                    if self.rows[i+1][j]['type'] == 'empty' and self.rows[i+1][j+1]['type'] == 'empty':
-                        self.rows[i][j]['type'] = 'face_up'
+        for space in self.spaces:
+            space.update()
 
     def removeCard(self, card):
-        for i in range(len(self.rows)):
-            for j in range(len(self.rows[i])):
-                if self.rows[i][j]['card'] == card:
-                    self.rows[i][j] = {'card': None, 'type': 'empty'}
-                    return True
+        for space in self.spaces:
+            if space.card == card:
+                space.clear()
+                break
 
     def getFaceUpCards(self):
-        face_up_cards = []
-        for row in self.rows:
-            for card in row:
-                if card['type'] == 'face_up':
-                    face_up_cards.append(card['card'])
-        return face_up_cards
+        return [space.card for space in self.spaces if space.type == 'FACE_UP']
 
     def getFaceDownCards(self):
-        face_down_cards = []
-        for row in self.rows:
-            for card in row:
-                if card['type'] == 'face_down':
-                    face_down_cards.append(card['card'])
-        return face_down_cards
+        return [space.card for space in self.spaces if space.type == 'FACE_DOWN']
+
+    def printPyramid(self):
+        printRows = [[str(space) for space in row] for row in self.rows]
+        [print(row) for row in printRows]
+
 
     def cardsLeft(self):
         return len(self.getFaceUpCards()) + len(self.getFaceDownCards())
 
     def getCardPosition(self, card):
-        for i in range(len(self.rows)):
-            for j in range(len(self.rows[i])):
-                if self.rows[i][j]['card'] == card:
-                    return (i, j)
+        for space in self.spaces:
+            if space.card == card:
+                return space.location
 
     def countRevealedCards(self, cards):
-        count = 0
-        for i in range(len(self.rows)):
-            for j in range(len(self.rows[i])-1):
-                if self.rows[i][j]['type'] == 'face_down':
-                    if (self.rows[i+1][j]['type'] == 'empty' or (self.rows[i+1][j]['type'] == 'face_up' and self.rows[i+1][j]['card'] in cards)) and (self.rows[i+1][j+1]['type'] == 'empty' or (self.rows[i+1][j+1]['type'] == 'face_up' and self.rows[i+1][j+1]['card'] in cards)):
-                        count += 1
-        return count
-
-    def printPyramid(self):
-        printRows = [[None] * i for i in range(1, 8)]
-        for i in range(len(self.rows)):
-            for j in range(len(self.rows[i])):
-                if self.rows[i][j]['type'] == 'face_up':
-                    printRows[i][j] = self.rows[i][j]['card']
-                elif self.rows[i][j]['type'] == 'face_down':
-                    printRows[i][j] = '🂠'
-                elif self.rows[i][j]['type'] == 'empty':
-                    printRows[i][j] = '⬜'
-        for row in printRows:
-            print(row)
-
+        emptySpaces = [space for space in self.spaces if (space.type == 'EMPTY' or space.card in cards)]
+        return sum([1 for space in self.spaces if (space.type == 'FACE_DOWN' and all(child in emptySpaces for child in space.children))])
+    
 
 class Game:
     def __init__(self, strategy):
@@ -159,7 +173,7 @@ class Game:
     def playCard(self, card):
         pointsByRow = [502, 27, 17, 12, 7, 4, 3]
         if card in self.legalMoves:
-            row = self.pyramid.getCardPosition(card)[0]
+            row = self.pyramid.getCardPosition(card)[0]-1
             self.stack.append(card)
             self.pyramid.removeCard(card)
             self.points += pointsByRow[row] + 2*self.consecutivePlays
@@ -306,11 +320,5 @@ if __name__ == '__main__':
     print(f'Average points: {avgPoints:.2f}')
     print(f'Average number of cards left: {avgCardsLeft:.2f}')
 
-    ## make a histogram of gamePoints
-    plt.hist(gamePoints, bins=1000)
-    plt.xlabel('Points')
-    plt.ylabel('Frequency')
-    plt.title('Histogram of points')
-    plt.show()
 
 
