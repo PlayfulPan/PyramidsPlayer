@@ -118,15 +118,19 @@ class Pyramid:
     def cardsLeft(self):
         return len(self.getFaceUpCards()) + len(self.getFaceDownCards())
 
-    def getCardPosition(self, card):
+    def getSpaceByCard(self, card):
         for space in self.spaces:
             if space.card == card:
-                return space.location
+                return space
 
     def countRevealedCards(self, cards):
-        emptySpaces = [space for space in self.spaces if (space.type == 'EMPTY' or space.card in cards)]
-        return sum([1 for space in self.spaces if (space.type == 'FACE_DOWN' and all(child in emptySpaces for child in space.children))])
-    
+        emptySpaces = [space for space in self.spaces if space.type == 'EMPTY']
+        spacesToPlay = list(map(self.getSpaceByCard, cards))
+        cardsRevealed = []
+        for space in spacesToPlay:
+            emptySpaces.append(space)
+            cardsRevealed.append(sum([1 for revealedSpace in self.spaces if (revealedSpace.type == 'FACE_DOWN' and all(child in emptySpaces for child in revealedSpace.children))]))
+        return cardsRevealed[-1]
 
 class Game:
     def __init__(self, strategy):
@@ -173,7 +177,7 @@ class Game:
     def playCard(self, card):
         pointsByRow = [502, 27, 17, 12, 7, 4, 3]
         if card in self.legalMoves:
-            row = self.pyramid.getCardPosition(card)[0]-1
+            row = self.pyramid.getSpaceByCard(card).location[0]-1
             self.stack.append(card)
             self.pyramid.removeCard(card)
             self.points += pointsByRow[row] + 2*self.consecutivePlays
@@ -199,91 +203,27 @@ class Strategy:
 
 class RandomStrategy(Strategy):
     def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
+        print(stack[-1])
+        pyramid.printPyramid()
+        print(findConsecutivePlays(stack[-1], pyramid.getFaceUpCards()))
         return random.choice(legalMoves)
 
 
-class BasicStragety(Strategy):
-    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
-        consecutivePlays = findConsecutivePlays(stack[-1], pyramid)
-        revealedCards = [pyramid.countRevealedCards(
-            play) for play in consecutivePlays]
-        maxRevealedCards = max(revealedCards)
-        bestCards = []
-        for i in range(len(revealedCards)):
-            if revealedCards[i] == maxRevealedCards:
-                bestCard = consecutivePlays[i][0]
-                if bestCard not in bestCards:
-                    bestCards.append(bestCard)
-        revealedCards = [pyramid.countRevealedCards(
-            [card]) for card in bestCards]
-        maxRevealedCards = max(revealedCards)
-        bestCard = random.choice([bestCards[i] for i in range(
-            len(bestCards)) if revealedCards[i] == maxRevealedCards])
-        return bestCard
-
-
-class AdvancedStragety(Strategy):
-    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
-        consecutivePlays = findConsecutivePlays(stack[-1], pyramid)
-        revealedCards = [pyramid.countRevealedCards(
-            play) for play in consecutivePlays]
-        maxRevealedCards = max(revealedCards)
-        bestCards = []
-        for i in range(len(revealedCards)):
-            if revealedCards[i] == maxRevealedCards:
-                bestCard = consecutivePlays[i][0]
-                if bestCard not in bestCards:
-                    bestCards.append(bestCard)
-        revealedCards = [pyramid.countRevealedCards(
-            [card]) for card in bestCards]
-        maxRevealedCards = max(revealedCards)
-        bestCards = [bestCards[i] for i in range(
-            len(bestCards)) if revealedCards[i] == maxRevealedCards]
-        rows = [pyramid.getCardPosition(card)[0] for card in bestCards]
-        maxRow = max(rows)
-        bestCard = random.choice(
-            [bestCards[i] for i in range(len(bestCards)) if rows[i] == maxRow])
-        return bestCard
-
-
-class ExtraBasicStragety(Strategy):
-    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
-        consecutivePlays = findConsecutivePlays(stack[-1], pyramid)
-        revealedCards = [pyramid.countRevealedCards(
-            play) for play in consecutivePlays]
-        maxRevealedCards = max(revealedCards)
-        bestCards = []
-        for i in range(len(revealedCards)):
-            if revealedCards[i] == maxRevealedCards:
-                bestCard = consecutivePlays[i][0]
-                if bestCard not in bestCards:
-                    bestCards.append(bestCard)
-        return random.choice(bestCards)
-
-
-def findConsecutivePlays(stackCard, pyramid, playedCards=[]):
+def findConsecutivePlays(stackCard, faceUpCards):
     consecutivePlays = []
 
-    faceUpCards = pyramid.getFaceUpCards()
-
     for card in faceUpCards:
-        if card in playedCards:
-            continue
 
         if Game.canPlay(stackCard, card):
-            playedCards.append(card)
-
             newPlay = [card]
             subsequentPlays = findConsecutivePlays(
-                card, pyramid, playedCards)
+                card, [faceUpCard for faceUpCard in faceUpCards if faceUpCard != card])
 
             if len(subsequentPlays) > 0:
                 for play in subsequentPlays:
                     consecutivePlays.append(newPlay + play)
             else:
                 consecutivePlays.append(newPlay)
-
-            playedCards.remove(card)
 
     return consecutivePlays
 
@@ -297,11 +237,11 @@ def playGame(strategy):
 
 if __name__ == '__main__':
 
-    gamesToPlay = 1000
+    gamesToPlay = 1
 
     wins = 0
 
-    stragety = AdvancedStragety
+    stragety = RandomStrategy
     
     with mp.Pool() as pool:
         results = pool.map(playGame, [stragety]*gamesToPlay)
