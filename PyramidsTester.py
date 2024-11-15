@@ -42,15 +42,20 @@ class Pyramid:
     class Space:
         def __init__(self, location):
             rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
+            pointsByRow = [502, 27, 17, 12, 7, 4, 3]
             
             self.location = location
-            self.position = rowAdjustment[location[0]-1] + location[1]
+            self.position = rowAdjustment[location[0]] + location[1]+1
+            self.points = pointsByRow[location[0]]
 
             self.card = None
             self.type = 'EMPTY'
 
             self.children = []
             self.parents = []
+
+            self.decentants = []
+            self.ancestors = []
         
         def __str__(self):
             if self.type == 'FACE_UP':
@@ -68,25 +73,37 @@ class Pyramid:
         def clear(self):
             self.card = None
             self.type = 'EMPTY'
-            
+
+        def getDescendants(self):
+            return list(set(self.children + [descendant for child in self.children for descendant in child.getDescendants()]))
+        
+        def getAncestors(self):
+            return list(set(self.parents + [ancestor for parent in self.parents for ancestor in parent.getAncestors()]))
+        
+        def buildFamilyTree(self):
+            self.decentants = self.getDescendants()
+            self.ancestors = self.getAncestors()
 
     def __init__(self):
         self.rows = []
         self.spaces = []
-        for i in range(1, 8):
+        for i in range(7):
             row = []
-            for j in range(1, i+1):
+            for j in range(i):
                 space = self.Space((i, j))
                 row.append(space)
                 self.spaces.append(space)
             self.rows.append(row)
         
         for i in range(6):
-            for j in range(i+1):
+            for j in range(i):
                 self.rows[i][j].children.append(self.rows[i+1][j])
                 self.rows[i][j].children.append(self.rows[i+1][j+1])
                 self.rows[i+1][j].parents.append(self.rows[i][j])
                 self.rows[i+1][j+1].parents.append(self.rows[i][j])
+
+        for space in self.spaces:
+            space.buildFamilyTree()
 
     def dealPyramid(self, deck):
         for space in self.spaces:
@@ -177,7 +194,7 @@ class Game:
     def playCard(self, card):
         pointsByRow = [502, 27, 17, 12, 7, 4, 3]
         if card in self.legalMoves:
-            row = self.pyramid.getSpaceByCard(card).location[0]-1
+            row = self.pyramid.getSpaceByCard(card).location[0]
             self.stack.append(card)
             self.pyramid.removeCard(card)
             self.points += pointsByRow[row] + 2*self.consecutivePlays
@@ -230,6 +247,8 @@ def findConsecutivePlays(stackCard, faceUpCards):
 
 def playGame(strategy):
     game = Game(strategy)
+    for space in game.pyramid.spaces:
+        print(space.location, [ancestor.location for ancestor in space.decentants])
     while not game.gameOver:
         canPlay = game.play()
     return (game.points, game.pyramid.cardsLeft())
@@ -244,7 +263,9 @@ if __name__ == '__main__':
     stragety = RandomStrategy
     
     with mp.Pool() as pool:
+        
         results = pool.map(playGame, [stragety]*gamesToPlay)
+
 
     wins = sum([1 for result in results if result[1] == 0])
     gamePoints = [result[0] for result in results]
