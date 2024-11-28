@@ -27,6 +27,7 @@ class Card:
 # Deck class to create and shuffle the deck of cards
 
 
+
 class Deck:
     def __init__(self):
         suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
@@ -54,7 +55,7 @@ class Pyramid:
             self.children = []
             self.parents = []
 
-            self.decentants = []
+            self.descendants = []
             self.ancestors = []
 
         def __str__(self):
@@ -64,6 +65,9 @@ class Pyramid:
                 return '🂠'
             elif self.type == 'EMPTY':
                 return '⬜'
+            
+        def ancestorCount(self):
+            return sum([len(generation) for generation in self.ancestors])
 
         def update(self):
             if self.type == 'FACE_DOWN':
@@ -74,25 +78,38 @@ class Pyramid:
             self.card = None
             self.type = 'EMPTY'
 
-
     def __init__(self):
         self.rows = []
         self.spaces = []
         for i in range(7):
             row = []
-            for j in range(i):
+            for j in range(i+1):
                 space = self.Space((i, j))
                 row.append(space)
                 self.spaces.append(space)
             self.rows.append(row)
 
-        for space in self.spaces:
-            for i in range(space.position[0]+1, 7):
-                for j in range(space.position[1], space.position[1]+2):
-                    if j < len(self.rows[i]):
-                        space.children.append(self.rows[i][j])
-                        self.rows[i][j].parents.append(space)
+        self.mapSpaces()
 
+    def mapSpaces(self):
+        for space in self.spaces:
+            for generationOffset in range(1, space.position[0]+1):
+                generation = []
+                for j in range(max(0, space.position[1]-generationOffset), min(space.position[1], space.position[0]-generationOffset)+1):
+                    generation.append(
+                        self.rows[space.position[0]-generationOffset][j])
+                space.ancestors.append(generation)
+                if generationOffset == 1:
+                    space.parents = generation
+
+            for generationOffset in range(1, 7-space.position[0]):
+                generation = []
+                for j in range(space.position[1], min(space.position[0]+generationOffset, space.position[1]+generationOffset)+1):
+                    generation.append(
+                        self.rows[space.position[0]+generationOffset][j])
+                space.descendants.append(generation)
+                if generationOffset == 1:
+                    space.children = generation
 
     def dealPyramid(self, deck):
         for space in self.spaces:
@@ -103,12 +120,6 @@ class Pyramid:
     def revealCards(self):
         for space in self.spaces:
             space.update()
-
-    def removeCard(self, card):
-        for space in self.spaces:
-            if space.card == card:
-                space.clear()
-                break
 
     def getFaceUpCards(self):
         return [space.card for space in self.spaces if space.type == 'FACE_UP']
@@ -128,15 +139,19 @@ class Pyramid:
             if space.card == card:
                 return space
 
-    def countRevealedCards(self, cards):
+    def findRevealedSpaces(self, sequence):
         emptySpaces = [space for space in self.spaces if space.type == 'EMPTY']
-        spacesToPlay = list(map(self.getSpaceByCard, cards))
-        cardsRevealed = []
+        spacesToPlay = list(map(self.getSpaceByCard, sequence))
+        spacesRevealed = []
+        spacesPlayed = []
+
         for space in spacesToPlay:
-            emptySpaces.append(space)
-            cardsRevealed.append(sum([1 for revealedSpace in self.spaces if (
-                revealedSpace.type == 'FACE_DOWN' and all(child in emptySpaces for child in revealedSpace.children))]))
-        return cardsRevealed[-1]
+            spacesPlayed.append(space)
+            revealedSpaces = [parent for parent in space.parents if (not any(parent in sublist for sublist in spacesRevealed)) and parent.type == 'FACE_DOWN' and all(
+                child in emptySpaces + spacesPlayed for child in parent.children)]
+            spacesRevealed.append(revealedSpaces)
+
+        return spacesRevealed
 
 
 class Game:
@@ -177,28 +192,32 @@ class Game:
             card for card in self.pyramid.getFaceUpCards() if Game.canPlay(self.stack[-1], card)]
         if len(self.legalMoves) == 0 and len(self.deck.cards) == 0:
             self.gameOver = True
-        if len(self.pyramid.getFaceUpCards())+len(self.pyramid.getFaceDownCards()) == 0:
+        if self.pyramid.cardsLeft() == 0:
             self.hasWon = True
             self.gameOver = True
 
     def playCard(self, card):
-        pointsByRow = [502, 27, 17, 12, 7, 4, 3]
         if card in self.legalMoves:
-            row = self.pyramid.getSpaceByCard(card).position[0]
+            space = self.pyramid.getSpaceByCard(card)
             self.stack.append(card)
-            self.pyramid.removeCard(card)
-            self.points += pointsByRow[row] + 2*self.consecutivePlays
+            space.clear()
+            self.points += space.points + 2*self.consecutivePlays
             self.consecutivePlays += 1
             self.update()
             return True
         return False
 
     def play(self):
+        #print(self.stack[-1])
+        #self.pyramid.printPyramid()
+        #print('-------------------')
+        #print('')
         if len(self.legalMoves) > 0:
             self.playCard(self.strategy.chooseMove(
                 self.legalMoves, self.pyramid, self.stack, self.consecutivePlays))
             return True
         elif self.drawCard():
+            
             return True
         return False
 
@@ -210,10 +229,54 @@ class Strategy:
 
 class RandomStrategy(Strategy):
     def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
-        print(stack[-1])
-        pyramid.printPyramid()
-        print(findConsecutivePlays(stack[-1], pyramid.getFaceUpCards()))
+        plays = findConsecutivePlays(stack[-1], pyramid.getFaceUpCards())
+        print(plays)
+        [pyramid.findRevealedSpaces(play) for play in plays]
         return random.choice(legalMoves)
+    
+class AdvacedStrategy(Strategy):
+    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
+        plays = findConsecutivePlays(stack[-1], pyramid.getFaceUpCards())
+        fullDeck = [Card(suit, rank) for suit in ['Hearts', 'Diamonds', 'Clubs', 'Spades'] for rank in range(1, 14)]
+        seenCards = stack+pyramid.getFaceUpCards()
+        remainingCards = [card for card in fullDeck if card not in seenCards]
+
+        plays = [Play(remainingCards, consecutivePlays, pyramid, play) for play in plays]
+        random.shuffle(plays)
+        sortedPlays = sorted(plays, key=lambda play: (play.totalRevealed, play.cardsRevealed[0], pyramid.getSpaceByCard(play.sequence[0]).position[0]), reverse=True)
+        return sortedPlays[0].sequence[0]
+    
+
+class SuperAdvacedStrategy(Strategy):
+    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
+        plays = findConsecutivePlays(stack[-1], pyramid.getFaceUpCards())
+        fullDeck = [Card(suit, rank) for suit in ['Hearts', 'Diamonds', 'Clubs', 'Spades'] for rank in range(1, 14)]
+        seenCards = stack+pyramid.getFaceUpCards()
+        remainingCards = [card for card in fullDeck if card not in seenCards]
+
+        plays = [Play(remainingCards, consecutivePlays, pyramid, play) for play in plays]
+        random.shuffle(plays)
+        sortedPlays = sorted(plays, key=lambda play: (play.totalRevealed, play.cardsRevealed[0], play.totalDraws, play.ancestorCount[0]), reverse=True)
+        return sortedPlays[0].sequence[0]
+
+
+class Play:
+    def __init__(self, remainingCards, consecutivePlays, pyramid, sequence):
+        self.sequence = sequence
+        self.cardsRevealed = list(map(len, pyramid.findRevealedSpaces(sequence)))
+        self.ancestorCount = [pyramid.getSpaceByCard(card).ancestorCount() for card in sequence]
+
+        self.possibleContinuations = [card for card in remainingCards if Game.canPlay(sequence[-1], card)]
+        self.remainingFaceUpCards = [card for card in pyramid.getFaceUpCards() if card not in sequence]
+        self.possibleDraws = [card for card in remainingCards if any(Game.canPlay(card, faceUpCard) for faceUpCard in self.remainingFaceUpCards)]
+
+        self.totalRevealed = sum(self.cardsRevealed)
+        self.totalAncestors = sum(self.ancestorCount)
+        self.totalContinuations = len(self.possibleContinuations)
+        self.totalDraws = len(self.possibleDraws)
+
+
+
 
 
 def findConsecutivePlays(stackCard, faceUpCards):
@@ -237,21 +300,18 @@ def findConsecutivePlays(stackCard, faceUpCards):
 
 def playGame(strategy):
     game = Game(strategy)
-    for space in game.pyramid.spaces:
-        print(space.position, [
-              ancestor.position for ancestor in space.decentants])
     while not game.gameOver:
-        canPlay = game.play()
+        game.play()
     return (game.points, game.pyramid.cardsLeft())
 
 
 if __name__ == '__main__':
 
-    gamesToPlay = 1
+    gamesToPlay = 1000000
 
     wins = 0
 
-    stragety = RandomStrategy
+    stragety = AdvacedStrategy
 
     with mp.Pool() as pool:
 

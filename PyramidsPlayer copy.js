@@ -148,6 +148,32 @@
 
             console.groupEnd();
         }
+    }
+
+    class Pyramid {
+        
+        constuctor() {
+
+        }
+
+        static Space = class {
+            constructor(position) {
+                const rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
+                const pointsByRow = [502, 27, 17, 12, 7, 4, 3]
+
+                this.position = position;
+                this.index = rowAdjustment[position[0]] + position[1] + 1;
+                this.points = pointsByRow[position[0]];
+
+                this.card = null;
+                this.type = 'EMPTY';
+
+                this.children = [];
+                this.parents = [];
+                
+            }
+        }
+
 
 
 
