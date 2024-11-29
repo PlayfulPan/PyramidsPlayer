@@ -30,19 +30,13 @@
             this.parseGameStats();
             this.parseCards();
 
-            // Update seen cards with face-up cards from the pyramid and stack
             this.updateSeenCards();
 
-            // Generate unseen cards
             this.generateUnseenCards();
         }
 
         parseGameStats() {
-            const statsTable = this.mainGameBoardElement.querySelector('table[cellpadding="2"][cellspacing="1"][width="550"]');
-            const rows = statsTable.querySelectorAll('tr');
-
-            const dataRow = rows[1]; // Assuming the second row contains the data
-            const dataCells = dataRow.querySelectorAll('td');
+            const dataCells = this.mainGameBoardElement.querySelector('table[cellpadding="2"][cellspacing="1"][width="550"]').querySelectorAll('tr')[1].querySelectorAll('td');
 
             this.consecutivePlays = parseInt(dataCells[0].textContent.trim(), 10) || 0;
             this.gamePoints = parseInt(dataCells[1].textContent.trim(), 10) || 0;
@@ -51,60 +45,25 @@
         }
 
         parseCards() {
-            // Locate the main game area table
-            const gameAreaTable = this.mainGameBoardElement.querySelector('table[cellpadding="3"][cellspacing="0"][width="550"][height="450"]');
-            const gameAreaRows = gameAreaTable.querySelectorAll('tr');
+            const gameAreaRows = this.mainGameBoardElement.querySelector('table[cellpadding="3"][cellspacing="0"][width="550"][height="450"]').querySelectorAll('tr');
 
-            // Parse draw pile and stack card
-            const stackCardRow = gameAreaRows[0]; // Assuming first row contains draw pile and stack card
-            const stackCardCell = stackCardRow.querySelector('td[align="center"][valign="top"]');
-            const stackImages = stackCardCell.querySelectorAll('img');
+            const stackImages = gameAreaRows[0].querySelector('td[align="center"][valign="top"]').querySelectorAll('img');
+            this.drawPile = new Space(stackImages[0]);
+            this.stackPile = new Space(stackImages[1]);
 
-            const drawParent = stackImages[0].parentElement;
-            if (drawParent && drawParent.tagName.toLowerCase() === 'a') {
-                this.drawLink = drawParent;
-            }
-
-            this.stackCard = new Card(Card.parseCardData(stackImages[1])); // Assuming the second image is the stack card
-
-            // Parse the pyramid cards from the nested table
-            const pyramidNestedTable = gameAreaRows[1].querySelector('table[cellpadding="0"][cellspacing="0"][width="400"]');
-            const pyramidRows = pyramidNestedTable.querySelectorAll('tr');
-
-            this.pyramidCards = [];
-            this.clickableCards = [];
-
-            pyramidRows.forEach((tr) => {
-                const rowData = [];
-                const imgs = tr.querySelectorAll('img');
-
-                imgs.forEach((img) => {
-                    const cardData = Card.parseCardData(img);
-                    const card = new Card(cardData);
-                    rowData.push(card);
-
-                    const parent = img.parentElement;
-                    if (parent && parent.tagName.toLowerCase() === 'a') {
-                        const clickableCard = new Card(cardData);
-                        clickableCard.link = parent;
-                        this.clickableCards.push(clickableCard);
-                    }
-                });
-                this.pyramidCards.push(rowData);
-            });
+            const pyramidRows = gameAreaRows[1].querySelector('table[cellpadding="0"][cellspacing="0"][width="400"]').querySelectorAll('tr');
+            this.pyramid = new Pyramid(pyramidRows);
         }
 
         updateSeenCards() {
-            // Add face-up pyramid cards to seen cards
-            this.pyramidCards.flat().forEach(card => {
-                if (card.type === 'FACEUP' && !this.seenCards.some(seenCard => seenCard.matches(card))) {
+            this.pyramid.getFaceUpCards().forEach(card => {
+                if (!this.seenCards.some(seenCard => seenCard.matches(card))) {
                     this.seenCards.push(card);
                 }
             });
 
-            // Add stack card to seen cards
-            if (this.stackCard.type === 'FACEUP' && !this.seenCards.some(seenCard => seenCard.matches(this.stackCard))) {
-                this.seenCards.push(this.stackCard);
+            if (this.stackPile.type === 'FACE_UP' && !this.seenCards.some(seenCard => seenCard.matches(this.stackPile.card))) {
+                this.seenCards.push(this.stackPile.card);
             }
         }
 
@@ -114,7 +73,7 @@
 
             for (let rank = 1; rank <= 13; rank++) {
                 for (let suit of suits) {
-                    const card = new Card({ type: 'FACEUP', rank, suit });
+                    const card = new Card(suit, rank);
                     if (!this.seenCards.some(seenCard => seenCard.matches(card))) {
                         this.unseenCards.push(card);
                     }
@@ -135,69 +94,208 @@
 
             // Print Stack Card
             console.group("Stack Card");
-            console.log(`Stack Card: ${this.stackCard.displayName()}`);
+            console.log(`Stack Card: ${this.stackPile.toString()}`);
             console.groupEnd();
 
             // Print Pyramid Cards
             console.group("Pyramid Cards");
-            this.pyramidCards.forEach((row, rowIndex) => {
-                const rowDisplay = row.map(card => card.displayName()).join(' ');
-                console.log(`Row ${rowIndex + 1}: ${rowDisplay}`);
-            });
+            this.pyramid.toString();
             console.groupEnd();
 
             console.groupEnd();
         }
-    }
 
-    class Pyramid {
-        
-        constuctor() {
+        static findConsecutivePlays(stackCard, faceUpCards) {
+            const consecutivePlays = [];
 
+            for (const card of faceUpCards) {
+                if (card.canPlayOn(stackCard)) {
+                    const newPlay = [card];
+                    const remainingFaceUpCards = faceUpCards.filter(faceUpCard => faceUpCard !== card);
+                    const subsequentPlays = Game.findConsecutivePlays(card, remainingFaceUpCards);
+
+                    if (subsequentPlays.length > 0) {
+                        for (const play of subsequentPlays) {
+                            consecutivePlays.push([...newPlay, ...play]);
+                        }
+                    } else {
+                        consecutivePlays.push(newPlay);
+                    }
+                }
+            }
+            return consecutivePlays;
         }
 
-        static Space = class {
-            constructor(position) {
-                const rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
-                const pointsByRow = [502, 27, 17, 12, 7, 4, 3]
+        analyzePlay(play) {
+            const revealedSpaces = this.pyramid.findRevealedSpaces(play).map(spaces => spaces.length);
+            const totalRevealed = revealedSpaces.reduce((a, b) => a + b, 0);
+            const firstRevealed = revealedSpaces[0];
 
-                this.position = position;
-                this.index = rowAdjustment[position[0]] + position[1] + 1;
-                this.points = pointsByRow[position[0]];
+            const space = this.pyramid.getSpaceByCard(play[0]);
 
-                this.card = null;
-                this.type = 'EMPTY';
+            const ancestorCount = space.ancestorCount();
 
-                this.children = [];
-                this.parents = [];
-                
+            const remainingFaceUpCards = this.pyramid.getFaceUpCards().filter(card => !play.some(playedCard => playedCard.matches(card)));
+            const possibleDraws = this.unseenCards.filter(card => remainingFaceUpCards.some(faceUpCard => faceUpCard.canPlayOn(card)));
+
+            return { space: space, stats: [totalRevealed, firstRevealed, possibleDraws.length, ancestorCount] };
+        }
+
+        chooseMove() {
+            const possiblePlays = Game.findConsecutivePlays(this.stackPile.card, this.pyramid.getFaceUpCards());
+            if (possiblePlays.length === 0) {
+                return this.drawPile;
+            } else {
+                const playStats = possiblePlays.map(play => this.analyzePlay(play));
+                const bestPlay = playStats.reduce((best, current) => {
+                    if (current.stats[0] > best.stats[0]) {
+                        return current;
+                    } else if (current.stats[0] === best.stats[0]) {
+                        if (current.stats[1] > best.stats[1]) {
+                            return current;
+                        } else if (current.stats[1] === best.stats[1]) {
+                            if (current.stats[2] > best.stats[2]) {
+                                return current;
+                            } else if (current.stats[2] === best.stats[2]) {
+                                if (current.stats[3] > best.stats[3]) {
+                                    return current;
+                                }
+                            }
+                        }
+                    }
+                    return best;
+                });
+                return bestPlay.space;
             }
         }
 
-
-
-
     }
 
-    class Card {
-        constructor(cardData) {
-            this.type = cardData.type;
-            if (this.type === 'FACEUP') {
-                this.rank = cardData.rank;
-                this.suit = cardData.suit;
+    class Pyramid {
+
+        constructor(pyramidRows) {
+            this.rows = [];
+            this.spaces = [];
+
+            for (let i = 0; i < 7; i++) {
+                let row = [];
+                let imgs = pyramidRows[i].querySelectorAll('img');
+                for (let j = 0; j < i + 1; j++) {
+                    let space = new PyramidSpace(imgs[j], [i, j]);
+                    row.push(space);
+                    this.spaces.push(space);
+                }
+                this.rows.push(row);
+            }
+
+            this.mapSpaces();
+        }
+
+        mapSpaces() {
+            for (let space of this.spaces) {
+                for (let generationOffset = 1; generationOffset <= space.position[0]; generationOffset++) {
+                    let generation = [];
+                    for (
+                        let j = Math.max(0, space.position[1] - generationOffset);
+                        j <= Math.min(space.position[1], space.position[0] - generationOffset);
+                        j++
+                    ) {
+                        generation.push(this.rows[space.position[0] - generationOffset][j]);
+                    }
+                    space.ancestors.push(generation);
+                    if (generationOffset === 1) {
+                        space.parents = generation;
+                    }
+                }
+
+                for (let generationOffset = 1; generationOffset < 7 - space.position[0]; generationOffset++) {
+                    let generation = [];
+                    for (
+                        let j = space.position[1];
+                        j <= Math.min(space.position[0] + generationOffset, space.position[1] + generationOffset);
+                        j++
+                    ) {
+                        generation.push(this.rows[space.position[0] + generationOffset][j]);
+                    }
+                    space.descendants.push(generation);
+                    if (generationOffset === 1) {
+                        space.children = generation;
+                    }
+                }
+            }
+        }
+
+        getFaceUpCards() {
+            return this.spaces
+                .filter(space => space.type === 'FACE_UP')
+                .map(space => space.card);
+        }
+
+        cardsLeft() {
+            return this.spaces.filter(space => space.type !== 'EMPTY').length;
+        }
+
+        getSpaceByCard(card) {
+            for (const space of this.spaces) {
+                if (space.card === card) {
+                    return space;
+                }
+            }
+        }
+
+        findRevealedSpaces(sequence) {
+            const emptySpaces = this.spaces.filter(space => space.type === 'EMPTY');
+            const spacesToPlay = sequence.map(card => this.getSpaceByCard(card));
+            const spacesRevealed = [];
+            const spacesPlayed = [];
+
+            for (const space of spacesToPlay) {
+                spacesPlayed.push(space);
+                const revealedSpaces = space.parents.filter(parent => {
+                    const notInRevealed = !spacesRevealed.some(sublist => sublist.includes(parent));
+                    const isFaceDown = parent.type === 'FACE_DOWN';
+                    const combinedSpaces = emptySpaces.concat(spacesPlayed);
+                    const allChildrenCleared = parent.children.every(child => combinedSpaces.includes(child));
+                    return notInRevealed && isFaceDown && allChildrenCleared;
+                });
+                spacesRevealed.push(revealedSpaces);
+            }
+
+            return spacesRevealed;
+        }
+
+        toString() {
+            const printRows = this.rows.map(row => row.map(space => space.toString()));
+            printRows.forEach(row => console.log(row));
+        }
+    }
+
+    class Space {
+        constructor(img = null) {
+            this.card = null;
+            this.type = 'EMPTY';
+            this.link = null;
+
+            if (img) {
+                const cardData = Space.parseCardData(img);
+                this.type = cardData.type;
+                this.link = cardData.link;
+                if (this.type === 'FACE_UP') {
+                    this.card = new Card(cardData.suit, cardData.rank);
+                }
             }
         }
 
         static parseCardData(img) {
             const source = img.getAttribute('src');
-            let cardData = {};
+            let cardData = { type: 'EMPTY', suit: null, rank: null, link: null };
 
             if (source.includes('pyramid.gif')) {
-                cardData.type = 'FACEDOWN';
-            } else if (source.includes('blank.gif')) {
+                cardData.type = 'FACE_DOWN';
+            } else if (source.includes('blank.gif') || source.includes('empty.gif')) {
                 cardData.type = 'EMPTY';
             } else {
-                cardData.type = 'FACEUP';
+                cardData.type = 'FACE_UP';
 
                 const cardName = source.split('/').pop().replace('.gif', ''); // e.g., "10_spades" or "J_hearts"
                 const [rankStr, suit] = cardName.split('_');
@@ -209,32 +307,84 @@
                 cardData.rank = rank;
             }
 
+            const parent = img.parentElement;
+            if (parent && parent.tagName.toLowerCase() === 'a') {
+                cardData.link = parent;
+            }
+
             return cardData;
         }
 
-        displayName() {
-            const suitSymbols = { 'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠' };
-            const rankSymbols = { 1: 'A', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K' };
-
+        toString() {
             switch (this.type) {
-                case 'FACEDOWN':
-                    return '🂠';
                 case 'EMPTY':
                     return '⬜';
-                case 'FACEUP':
-                    return `${rankSymbols[this.rank]}${suitSymbols[this.suit]}`;
+                case 'FACE_UP':
+                    return this.card.toString();
+                case 'FACE_DOWN':
+                    return '🂠';
                 default:
                     return '❓';
             }
         }
+    }
+
+    class PyramidSpace extends Space {
+        constructor(img, position) {
+            super(img);
+
+            const rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
+            const pointsByRow = [502, 27, 17, 12, 7, 4, 3]
+
+            this.position = position;
+            this.index = rowAdjustment[position[0]] + position[1] + 1;
+            this.points = pointsByRow[position[0]];
+
+            this.children = [];
+            this.parents = [];
+
+            this.descendants = [];
+            this.ancestors = [];
+        }
+
+        ancestorCount() {
+            return this.ancestors.map(generation => generation.length).reduce((a, b) => a + b, 0);
+        }
+
+        ancestorsToString() {
+            const ancestorStrings = this.ancestors.map(generation => generation.map(space => space.toString()));
+            ancestorStrings.forEach(generation => console.log(generation));
+        }
+
+    }
+
+    class Card {
+        constructor(suit, rank) {
+            this.rank = rank;
+            this.suit = suit;
+        }
+
+        toString() {
+            const suitSymbols = { 'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠' };
+            const rankSymbols = { 1: 'A', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K' };
+
+            return `${rankSymbols[this.rank]}${suitSymbols[this.suit]}`;
+        }
 
         matches(card) {
-            if (this.type === 'FACEUP' && card.type === 'FACEUP') {
-                return this.rank === card.rank && this.suit === card.suit;
+            return this.rank === card.rank && this.suit === card.suit;
+        }
+
+        canPlayOn(card) {
+            if (card.rank === 1) {
+                return [2, 13].includes(this.rank);
+            } else if (card.rank === 13) {
+                return [12, 1].includes(this.rank);
             } else {
-                return this.type === card.type;
+                return Math.abs(card.rank - this.rank) === 1;
             }
         }
+
     }
 
     function addGUI(mainGameBoard) {
@@ -248,8 +398,8 @@
 
 
         const delaySettings = document.createElement('div');
-        
-        
+
+
 
         const minClickDelayInput = document.createElement('input');
         minClickDelayInput.type = 'number';
@@ -280,7 +430,7 @@
 
 
 
-        
+
 
         delaySettings.appendChild(minClickDelayDiv);
         delaySettings.appendChild(maxClickDelayDiv);
@@ -330,6 +480,9 @@
                 console.log('Active Game');
                 const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
                 addGUI(mainGameBoard);
+                const game = new Game(mainGameBoard);
+                game.logBoardState();
+                console.log(game.chooseMove().toString());
                 break;
 
             case 'CONTINUE_GAME':
