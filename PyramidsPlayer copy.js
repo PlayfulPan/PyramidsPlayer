@@ -15,13 +15,6 @@
 (function () {
     'use strict';
 
-    var autoReload = GM_getValue('autoReload', false);
-    var startNewGame = GM_getValue('startNewGame', false);
-    var reloadDelay = GM_getValue('reloadDelay', 5000);
-    var reloadTimeout = null;
-
-
-
     class Game {
         constructor(mainGameBoardElement, seenCards = []) {
             this.mainGameBoardElement = mainGameBoardElement;
@@ -97,6 +90,11 @@
             console.log(`Stack Card: ${this.stackPile.toString()}`);
             console.groupEnd();
 
+            // Print Seen Cards
+            console.group("Seen Cards");
+            console.log(this.seenCards.map(card => card.toString()));
+            console.groupEnd();
+
             // Print Pyramid Cards
             console.group("Pyramid Cards");
             this.pyramid.toString();
@@ -143,7 +141,7 @@
 
         chooseMove() {
             const possiblePlays = Game.findConsecutivePlays(this.stackPile.card, this.pyramid.getFaceUpCards());
-            if (possiblePlays.length === 0) {
+            if (possiblePlays.length === 0 && this.drawPile.link) {
                 return this.drawPile;
             } else {
                 const playStats = possiblePlays.map(play => this.analyzePlay(play));
@@ -167,6 +165,7 @@
                 });
                 return bestPlay.space;
             }
+            return null;
         }
 
     }
@@ -387,6 +386,16 @@
 
     }
 
+
+    var autoReload = GM_getValue('autoReload', false);
+    var startNewGame = GM_getValue('startNewGame', false);
+    var reloadDelay = GM_getValue('reloadDelay', 2000);
+    var reloadTimeout = null;
+
+    var nextAction = null;
+
+
+
     function addGUI(mainGameBoard) {
 
         const gui = document.createElement('div');
@@ -395,7 +404,25 @@
         gui.style.marginBottom = '10px';
         gui.style.textAlign = 'center';
 
-
+        // Create Toggle Script button
+        const toggleButton = document.createElement('button');
+        toggleButton.innerText = autoReload ? 'Stop Autoplay' : 'Start Autoplay';
+        toggleButton.setAttribute('style', 'margin-right: 10px; cursor: pointer;');
+        toggleButton.addEventListener('click', function () {
+            autoReload = !autoReload;
+            GM_setValue('autoReload', autoReload);
+            if (autoReload) {
+                toggleButton.innerText = 'Disable Autoplay';
+                scheduleClick(nextAction, reloadDelay);
+            }
+            else {
+                toggleButton.innerText = 'Enable Autoplay';
+                if (reloadTimeout) {
+                    clearTimeout(reloadTimeout);
+                    reloadTimeout = null;
+                }
+            }
+        });
 
         const delaySettings = document.createElement('div');
 
@@ -436,21 +463,21 @@
         delaySettings.appendChild(maxClickDelayDiv);
 
 
-        gui.append
+        gui.append(delaySettings);
+        gui.append(toggleButton);
 
         mainGameBoard.parentNode.insertBefore(gui, mainGameBoard.nextSibling);
 
     }
 
 
-    function scheduleReload(delay) {
+    function scheduleClick(button, delay) {
         if (autoReload && !reloadTimeout) {
             reloadTimeout = setTimeout(() => {
-                location.reload();
+                button.click();
             }, delay);
         }
     }
-
 
     function determinePageType() {
         const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
@@ -471,6 +498,22 @@
         }
     }
 
+    var previouslySeenCards = GM_getValue('seenCards', []).map(cardData => new Card(cardData.suit, cardData.rank));
+    console.log(previouslySeenCards);
+
+    // Add listener to stop autoplay when escape key is pressed
+    window.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            autoReload = false;
+            GM_setValue('autoReload', autoReload);
+            if (reloadTimeout) {
+                clearTimeout(reloadTimeout);
+                reloadTimeout = null;
+            }
+        }
+    }); 
+
+
     // Wait until the DOM is fully loaded before initializing
     window.addEventListener('load', function () {
         const pageType = determinePageType();
@@ -480,9 +523,19 @@
                 console.log('Active Game');
                 const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
                 addGUI(mainGameBoard);
-                const game = new Game(mainGameBoard);
-                game.logBoardState();
-                console.log(game.chooseMove().toString());
+
+                const collectLink = document.querySelector('a[href^="pyramids.phtml?action=collect"]');
+                if (collectLink) {
+                    nextAction = collectLink;
+                    GM_deleteValue('seenCards');
+                } else {
+                    const game = new Game(mainGameBoard, previouslySeenCards);
+                    GM_setValue('seenCards', game.seenCards);
+                    game.logBoardState();
+                    const move = game.chooseMove();
+                    console.log(move.toString());
+                    nextAction = move.link;
+                }
                 break;
 
             case 'CONTINUE_GAME':
@@ -490,7 +543,8 @@
                 const continuePlayingButton = document.querySelector('input[type="submit"][value="Continue Playing"]');
                 const cancelCurrentGameButton = document.querySelector('input[type="submit"][value="Cancel Current Game"]');
                 if (startNewGame) {
-                    cancelCurrentGameButton.click();
+                    nextAction = cancelCurrentGameButton;
+                    GM_deleteValue('seenCards');
                 }
                 break;
 
@@ -499,17 +553,22 @@
                 const playPyramidsButton = document.querySelector('input[type="submit"][value="Play Pyramids!"]');
                 if (startNewGame) {
                     GM_deleteValue('startNewGame');
-                    playPyramidsButton.click();
+                    GM_deleteValue('seenCards');
+                    nextAction = playPyramidsButton;
                 }
                 break;
 
             case 'GAME_OVER':
                 console.log('Game Over');
+                const playPyramidsAgainButton = document.querySelector('input[type="submit"][value="Play Pyramids Again!"]');
+                nextAction = playPyramidsAgainButton;
+                GM_deleteValue('seenCards');
                 break;
 
             case 'UNKNOWN':
                 console.log('Unknown Page');
                 break;
         }
+        scheduleClick(nextAction, reloadDelay); 
     });
 })();
