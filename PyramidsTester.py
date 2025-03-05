@@ -258,11 +258,25 @@ class SuperAdvacedStrategy(Strategy):
         random.shuffle(plays)
         sortedPlays = sorted(plays, key=lambda play: (play.totalRevealed, play.cardsRevealed[0], play.totalDraws, play.ancestorCount[0]), reverse=True)
         return sortedPlays[0].sequence[0]
+    
+
+class SuperDuperAdvacedStrategy(Strategy):
+    def chooseMove(legalMoves, pyramid, stack, consecutivePlays):
+        plays = findConsecutivePlays(stack[-1], pyramid.getFaceUpCards())
+        fullDeck = [Card(suit, rank) for suit in ['Hearts', 'Diamonds', 'Clubs', 'Spades'] for rank in range(1, 14)]
+        seenCards = stack+pyramid.getFaceUpCards()
+        remainingCards = [card for card in fullDeck if card not in seenCards]
+
+        plays = [Play(remainingCards, consecutivePlays, pyramid, play) for play in plays]
+        random.shuffle(plays)
+        sortedPlays = sorted(plays, key=lambda play: (play.totalRevealed, play.length, play.totalDraws, play.cardsRevealed[0], play.ancestorCount[0]), reverse=True)
+        return sortedPlays[0].sequence[0]
 
 
 class Play:
     def __init__(self, remainingCards, consecutivePlays, pyramid, sequence):
         self.sequence = sequence
+        self.length = len(sequence)
         self.cardsRevealed = list(map(len, pyramid.findRevealedSpaces(sequence)))
         self.ancestorCount = [pyramid.getSpaceByCard(card).ancestorCount() for card in sequence]
 
@@ -311,7 +325,7 @@ if __name__ == '__main__':
 
     wins = 0
 
-    stragety = AdvacedStrategy
+    stragety = SuperDuperAdvacedStrategy
 
     with mp.Pool() as pool:
 
