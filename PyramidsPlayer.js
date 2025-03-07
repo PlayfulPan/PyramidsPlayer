@@ -4,107 +4,31 @@
 // @version      1.0
 // @description  Plays Pyramids
 // @author       Pan
-// @match        https://www.neopets.com/games/pyramids/pyramids.phtml*
-// @grant GM_setValue
-// @grant GM_getValue
-// @grant GM.setValue
-// @grant GM.getValue
-// @grant GM_deleteValue
+// @match        https://www.neopets.com/games/pyramids/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM.setValue
+// @grant        GM.getValue
+// @grant        GM_deleteValue
 // ==/UserScript==
 
 (function () {
     'use strict';
 
+    class Game {
+        constructor(mainGameBoardElement, unseenCards) {
+            this.mainGameBoardElement = mainGameBoardElement;
+            this.unseenCards = unseenCards;
 
-    const minClickTiming = 1000;
-    const maxClickTiming = 2000;
-
-    function delay() {
-        return new Promise((resolve, reject) => {
-            setTimeout(function () {
-                resolve(); // Signal that the operation is complete
-            }, Math.round(minClickTiming + Math.random() * (maxClickTiming - minClickTiming)));
-        });
-    }
-
-    class Card {
-
-        constructor(img) {
-            this.source = img.getAttribute('src');
-            if (this.source.includes('pyramid.gif')) {
-                this.type = 'FACEDOWN';
-            } else if (this.source.includes('blank.gif')) {
-                this.type = 'EMPTY';
-            } else {
-                this.type = 'FACEUP';
-
-                const cardName = this.source.split('/').pop().replace('.gif', ''); // e.g., "10_spades" or "J_hearts"
-
-                const [rankStr, suit] = cardName.split('_');
-                let rank = parseInt(rankStr, 10);
-                if (rank === 14) {
-                    rank = 1;
-                }
-                this.suit = suit;
-                this.rank = rank;
-            }
-            const parent = img.parentElement;
-            if (parent && parent.tagName.toLowerCase() === 'a') {
-                this.link = parent;
-            }
-        }
-
-        displayName() {
-            const suitSymbols = { 'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠' };
-            const rankSymbols = { 1: 'A', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K' };
-
-            switch (this.type) {
-                case 'FACEDOWN':
-                    return '🂠';
-                case 'EMPTY':
-                    return '⬜';
-                case 'FACEUP':
-                    return `${rankSymbols[this.rank]}${suitSymbols[this.suit]}`;
-                default:
-                    return '❓';
-            }
-        }
-
-        click() {
-            if (this.link) {
-                this.link.click();
-            } else {
-                console.warn(`Card ${this.displayName()} is not clickable!`);
-            }
-        }
-    }
-
-    class Board {
-
-        constructor(mainGameBoardElement) {
-            this.mainGameBoard = mainGameBoardElement;
-            this.consecutivePlays = 0;
-            this.gamePoints = 0;
-            this.cardsInPile = 0;
-            this.highScore = 0;
-            this.drawPile = null;
-            this.stackCard = null; // { rank: Number, suit: String }
-            this.pyramidCards = []; // Array of card objects { position: Number, rank: Number, suit: String }
-
-            this.parseTopStats();
+            this.parseGameStats();
             this.parseCards();
+
+            this.updateUnseenCards();
         }
 
-        parseTopStats() {
-            // Locate the top statistics table
-            const statsTable = this.mainGameBoard.querySelector('table[cellpadding="2"][cellspacing="1"][width="550"]');
-            const rows = statsTable.querySelectorAll('tr');
+        parseGameStats() {
+            const dataCells = this.mainGameBoardElement.querySelector('table[cellpadding="2"][cellspacing="1"][width="550"]').querySelectorAll('tr')[1].querySelectorAll('td');
 
-            // Assuming the second row contains the data
-            const dataRow = rows[1];
-            const dataCells = dataRow.querySelectorAll('td');
-
-            // Extract and parse the statistics
             this.consecutivePlays = parseInt(dataCells[0].textContent.trim(), 10) || 0;
             this.gamePoints = parseInt(dataCells[1].textContent.trim(), 10) || 0;
             this.cardsInPile = parseInt(dataCells[2].textContent.trim(), 10) || 0;
@@ -112,32 +36,20 @@
         }
 
         parseCards() {
-            // Locate the main game area table
-            const gameAreaTable = this.mainGameBoard.querySelector('table[cellpadding="3"][cellspacing="0"][width="550"][height="450"]');
-            const gameAreaRows = gameAreaTable.querySelectorAll('tr');
+            const gameAreaRows = this.mainGameBoardElement.querySelector('table[cellpadding="3"][cellspacing="0"][width="550"][height="450"]').querySelectorAll('tr');
 
-            // Parse draw pile and stack card
-            const stackCardRow = gameAreaRows[0]; // Assuming first row contains draw pile and stack card
-            const stackCardCell = stackCardRow.querySelector('td[align="center"][valign="top"]');
-            const stackImages = stackCardCell.querySelectorAll('img');
+            const stackImages = gameAreaRows[0].querySelector('td[align="center"][valign="top"]').querySelectorAll('img');
+            this.drawPile = new Space(stackImages[0]);
+            this.stackPile = new Space(stackImages[1]);
 
-            this.drawPile = new Card(stackImages[0]); // Assuming the first image is the draw pile
-            this.stackCard = new Card(stackImages[1]); // Assuming the second image is the draw pile
+            const pyramidRows = gameAreaRows[1].querySelector('table[cellpadding="0"][cellspacing="0"][width="400"]').querySelectorAll('tr');
+            this.pyramid = new Pyramid(pyramidRows);
+        }
 
-            // Parse the pyramid cards from the nested table
-            const pyramidNestedTable = gameAreaRows[1].querySelector('table[cellpadding="0"][cellspacing="0"][width="400"]');
-            const pyramidRows = pyramidNestedTable.querySelectorAll('tr');
-            pyramidRows.forEach((tr, rowIndex) => {
-                const rowData = [];
-                const imgs = tr.querySelectorAll('img');
-                imgs.forEach((img, colIndex) => {
-                    let card = new Card(img);
-                    card.row = rowIndex;
-                    card.col = colIndex;
-                    rowData.push(card);
-                });
-                this.pyramidCards.push(rowData);
-            });
+        updateUnseenCards() {
+            const revealedCards = this.pyramid.getFaceUpCards();
+            revealedCards.push(this.stackPile.card);
+            this.unseenCards = this.unseenCards.filter(card => !revealedCards.some(revealedCard => revealedCard.matches(card)));
         }
 
         logBoardState() {
@@ -153,124 +65,372 @@
 
             // Print Stack Card
             console.group("Stack Card");
-            console.log(`Stack Card: ${this.stackCard.displayName()}`);
+            console.log(`Stack Card: ${this.stackPile.toString()}`);
+            console.groupEnd();
+
+            // Print Seen Cards
+            console.group("Unseen Cards");
+            console.log(this.unseenCards.map(card => card.toString()));
             console.groupEnd();
 
             // Print Pyramid Cards
             console.group("Pyramid Cards");
-            this.pyramidCards.forEach((row, rowIndex) => {
-                const rowDisplay = row.map(card => {
-                    return card.displayName();
-                }).join(' ');
-                console.log(`Row ${rowIndex + 1}: ${rowDisplay}`);
-            });
+            this.pyramid.toString();
             console.groupEnd();
 
             console.groupEnd();
         }
 
-        getCardByPos(row, col) {
-            return this.pyramidCards.flat().find((element) => element.row == row && element.col == col);
+        static findConsecutivePlays(stackCard, faceUpCards) {
+            const consecutivePlays = [];
+
+            for (const card of faceUpCards) {
+                if (card.canPlayOn(stackCard)) {
+                    const newPlay = [card];
+                    const remainingFaceUpCards = faceUpCards.filter(faceUpCard => faceUpCard !== card);
+                    const subsequentPlays = Game.findConsecutivePlays(card, remainingFaceUpCards);
+
+                    if (subsequentPlays.length > 0) {
+                        for (const play of subsequentPlays) {
+                            consecutivePlays.push([...newPlay, ...play]);
+                        }
+                    } else {
+                        consecutivePlays.push(newPlay);
+                    }
+                }
+            }
+            return consecutivePlays;
+        }
+
+        analyzePlay(play) {
+            const revealedSpaces = this.pyramid.findRevealedSpaces(play).map(spaces => spaces.length);
+            const totalRevealed = revealedSpaces.reduce((a, b) => a + b, 0);
+            const firstRevealed = revealedSpaces[0];
+
+            const space = this.pyramid.getSpaceByCard(play[0]);
+
+            const ancestorCount = space.ancestorCount();
+
+            const remainingFaceUpCards = this.pyramid.getFaceUpCards().filter(card => !play.some(playedCard => playedCard.matches(card)));
+            const possibleDraws = this.unseenCards.filter(card => remainingFaceUpCards.some(faceUpCard => faceUpCard.canPlayOn(card)));
+
+            return { space: space, stats: [totalRevealed, possibleDraws.length, play.length, firstRevealed, ancestorCount] };
+        }
+
+        chooseMove() {
+            const possiblePlays = Game.findConsecutivePlays(this.stackPile.card, this.pyramid.getFaceUpCards());
+            if (possiblePlays.length === 0 && this.drawPile.link) {
+                return this.drawPile;
+            } else {
+                const playStats = possiblePlays.map(play => this.analyzePlay(play));
+                const bestPlay = playStats.reduce((best, current) => {
+                    if (current.stats[0] > best.stats[0]) {
+                        return current;
+                    } else if (current.stats[0] === best.stats[0]) {
+                        if (current.stats[1] > best.stats[1]) {
+                            return current;
+                        } else if (current.stats[1] === best.stats[1]) {
+                            if (current.stats[2] > best.stats[2]) {
+                                return current;
+                            } else if (current.stats[2] === best.stats[2]) {
+                                if (current.stats[3] > best.stats[3]) {
+                                    return current;
+                                } else if (current.stats[3] === best.stats[3]) {
+                                    if (current.stats[4] > best.stats[4]) {
+                                        return current;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return best;
+                });
+                return bestPlay.space;
+            }
+            return null;
+        }
+
+    }
+
+    class Pyramid {
+
+        constructor(pyramidRows) {
+            this.rows = [];
+            this.spaces = [];
+
+            for (let i = 0; i < 7; i++) {
+                let row = [];
+                let imgs = pyramidRows[i].querySelectorAll('img');
+                for (let j = 0; j < i + 1; j++) {
+                    let space = new PyramidSpace(imgs[j], [i, j]);
+                    row.push(space);
+                    this.spaces.push(space);
+                }
+                this.rows.push(row);
+            }
+
+            this.mapSpaces();
+        }
+
+        mapSpaces() {
+            for (let space of this.spaces) {
+                for (let generationOffset = 1; generationOffset <= space.position[0]; generationOffset++) {
+                    let generation = [];
+                    for (
+                        let j = Math.max(0, space.position[1] - generationOffset);
+                        j <= Math.min(space.position[1], space.position[0] - generationOffset);
+                        j++
+                    ) {
+                        generation.push(this.rows[space.position[0] - generationOffset][j]);
+                    }
+                    space.ancestors.push(generation);
+                    if (generationOffset === 1) {
+                        space.parents = generation;
+                    }
+                }
+
+                for (let generationOffset = 1; generationOffset < 7 - space.position[0]; generationOffset++) {
+                    let generation = [];
+                    for (
+                        let j = space.position[1];
+                        j <= Math.min(space.position[0] + generationOffset, space.position[1] + generationOffset);
+                        j++
+                    ) {
+                        generation.push(this.rows[space.position[0] + generationOffset][j]);
+                    }
+                    space.descendants.push(generation);
+                    if (generationOffset === 1) {
+                        space.children = generation;
+                    }
+                }
+            }
         }
 
         getFaceUpCards() {
-            return this.pyramidCards.flat().filter((element) => element.type === 'FACEUP');
+            return this.spaces
+                .filter(space => space.type === 'FACE_UP')
+                .map(space => space.card);
         }
 
-        getFaceDownCards() {
-            return this.pyramidCards.flat().filter((element) => element.type === 'FACEDOWN');
+        cardsLeft() {
+            return this.spaces.filter(space => space.type !== 'EMPTY').length;
         }
 
-        getEmptyCards() {
-            return this.pyramidCards.flat().filter((element) => element.type === 'EMPTY');
+        getSpaceByCard(card) {
+            for (const space of this.spaces) {
+                if (space.card === card) {
+                    return space;
+                }
+            }
         }
 
-        draw() {
-            if (this.drawPile.link && this.cardsInPile > 0) {
-                this.drawPile.click();
-                console.log("Clicked on draw pile!");
+        findRevealedSpaces(sequence) {
+            const emptySpaces = this.spaces.filter(space => space.type === 'EMPTY');
+            const spacesToPlay = sequence.map(card => this.getSpaceByCard(card));
+            const spacesRevealed = [];
+            const spacesPlayed = [];
+
+            for (const space of spacesToPlay) {
+                spacesPlayed.push(space);
+                const revealedSpaces = space.parents.filter(parent => {
+                    const notInRevealed = !spacesRevealed.some(sublist => sublist.includes(parent));
+                    const isFaceDown = parent.type === 'FACE_DOWN';
+                    const combinedSpaces = emptySpaces.concat(spacesPlayed);
+                    const allChildrenCleared = parent.children.every(child => combinedSpaces.includes(child));
+                    return notInRevealed && isFaceDown && allChildrenCleared;
+                });
+                spacesRevealed.push(revealedSpaces);
+            }
+
+            return spacesRevealed;
+        }
+
+        toString() {
+            const printRows = this.rows.map(row => row.map(space => space.toString()));
+            printRows.forEach(row => console.log(row));
+        }
+    }
+
+    class Space {
+        constructor(img = null) {
+            this.card = null;
+            this.type = 'EMPTY';
+            this.link = null;
+
+            if (img) {
+                const cardData = Space.parseCardData(img);
+                this.type = cardData.type;
+                this.link = cardData.link;
+                if (this.type === 'FACE_UP') {
+                    this.card = new Card(cardData.suit, cardData.rank);
+                }
+            }
+        }
+
+        static parseCardData(img) {
+            const source = img.getAttribute('src');
+            let cardData = { type: 'EMPTY', suit: null, rank: null, link: null };
+
+            if (source.includes('pyramid.gif')) {
+                cardData.type = 'FACE_DOWN';
+            } else if (source.includes('blank.gif') || source.includes('empty.gif')) {
+                cardData.type = 'EMPTY';
             } else {
-                console.error("Draw pile link not found!");
+                cardData.type = 'FACE_UP';
+
+                const cardName = source.split('/').pop().replace('.gif', ''); // e.g., "10_spades" or "J_hearts"
+                const [rankStr, suit] = cardName.split('_');
+                let rank = parseInt(rankStr, 10);
+                if (rank === 14) {
+                    rank = 1;
+                }
+                cardData.suit = suit;
+                cardData.rank = rank;
+            }
+
+            const parent = img.parentElement;
+            if (parent && parent.tagName.toLowerCase() === 'a') {
+                cardData.link = parent;
+            }
+
+            return cardData;
+        }
+
+        toString() {
+            switch (this.type) {
+                case 'EMPTY':
+                    return '⬜';
+                case 'FACE_UP':
+                    return this.card.toString();
+                case 'FACE_DOWN':
+                    return '🂠';
+                default:
+                    return '❓';
             }
         }
     }
 
-    function canPlay(card, stackCard) {
-        if (stackCard.rank === 1) { // Ace
-            return card.rank === 2 || card.rank === 13; // Ace can be played on King or 2
-        } else if (stackCard.rank === 13) { // King
-            return card.rank === 12 || card.rank === 1; // King can be played on Queen or Ace
-        } else {
-            return card.rank === stackCard.rank + 1 || card.rank === stackCard.rank - 1;
+    class PyramidSpace extends Space {
+        constructor(img, position) {
+            super(img);
+
+            const rowAdjustment = [0, 1, 3, 6, 10, 15, 21]
+            const pointsByRow = [502, 27, 17, 12, 7, 4, 3]
+
+            this.position = position;
+            this.index = rowAdjustment[position[0]] + position[1] + 1;
+            this.points = pointsByRow[position[0]];
+
+            this.children = [];
+            this.parents = [];
+
+            this.descendants = [];
+            this.ancestors = [];
         }
+
+        ancestorCount() {
+            return this.ancestors.map(generation => generation.length).reduce((a, b) => a + b, 0);
+        }
+
+        ancestorsToString() {
+            const ancestorStrings = this.ancestors.map(generation => generation.map(space => space.toString()));
+            ancestorStrings.forEach(generation => console.log(generation));
+        }
+
     }
 
-    /**
-     * Recursively constructs all possible consecutive play sequences.
-     * @param {Object} stackCard - The current stack card, with properties 'rank' and 'suit'.
-     * @param {Set} playedCards - A set of positions already played in the current sequence.
-     * @returns {Array} - An array of consecutive play sequences, each sequence is an array of face up cards.
-     */
-    function findConsecutivePlays(stackCard, board, playedCards = new Set()) {
-        let sequences = [];
+    class Card {
+        constructor(suit, rank) {
+            this.rank = rank;
+            this.suit = suit;
+        }
 
-        const faceUpCards = board.getFaceUpCards();
+        toString() {
+            const suitSymbols = { 'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠' };
+            const rankSymbols = { 1: 'A', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K' };
 
-        for (let i = 0; i < faceUpCards.length; i++) {
-            let card = faceUpCards[i];
+            return `${rankSymbols[this.rank]}${suitSymbols[this.suit]}`;
+        }
 
-            // Skip if the card is already played in the current sequence
-            if (playedCards.has(card)) continue;
+        matches(card) {
+            return this.rank === card.rank && this.suit === card.suit;
+        }
 
-            if (canPlay(card, stackCard)) {
-
-                playedCards.add(card); // Mark the card as played
-
-                let newSequence = [card]; // Start a new sequence with this position
-                let subsequentSequences = findConsecutivePlays(card, board, playedCards); // Recursively find further plays
-
-                if (subsequentSequences.length > 0) { // Append the current position to each subsequent sequence
-                    subsequentSequences.forEach(seq => {
-                        sequences.push(newSequence.concat(seq));
-                    });
-                } else {
-                    sequences.push(newSequence); // No further plays, so this is a complete sequence
-                }
-                playedCards.delete(card); // Unmark the card for other sequences
+        canPlayOn(card) {
+            if (card.rank === 1) {
+                return [2, 13].includes(this.rank);
+            } else if (card.rank === 13) {
+                return [12, 1].includes(this.rank);
+            } else {
+                return Math.abs(card.rank - this.rank) === 1;
             }
         }
-        return sequences;
+
     }
 
-    function countRevealedCards(play, board) {
-        const faceDownCards = board.getFaceDownCards();
-                let revealedCards = 0;
-                for (let i = 0; i < faceDownCards.length; i++) {
-                    let card = faceDownCards[i];
-                    let leftCard = board.getCardByPos(card.row + 1, card.col);
-                    let rightCard = board.getCardByPos(card.row + 1, card.col + 1);
+    var autoReload = GM_getValue('autoReload', false);
+    var startNewGame = GM_getValue('startNewGame', false);
+    var reloadTimeout = null;
 
-                    if ((leftCard.type === 'EMPTY' || play.includes(leftCard)) && (rightCard.type === 'EMPTY' || play.includes(rightCard))) {
-                        revealedCards++;
-                    }
+    const minClickTiming = 250;
+    const maxClickTiming = 750;
+    const reloadDelay = Math.round(minClickTiming + Math.random() * (maxClickTiming - minClickTiming));
+
+    var nextAction = null;
+    var statObjects = [];
+    var toggleButton = null;
+
+    var gameHistory = JSON.parse(localStorage.getItem('PyramidsGameHistory')) || [];
+
+
+    function addCustomButtons(mainGameBoard) {
+        const buttonsDiv = document.createElement('div');
+        buttonsDiv.style.marginTop = '10px';
+        buttonsDiv.style.marginBottom = '10px';
+        buttonsDiv.style.textAlign = 'center';
+
+        // Create Toggle Script button
+        toggleButton = document.createElement('button');
+        toggleButton.innerText = autoReload ? 'Disable Autoplay' : 'Enable Autoplay';
+        toggleButton.setAttribute('style', 'margin-right: 10px; cursor: pointer;');
+
+        // Create Clear History button
+        const clearButton = document.createElement('button');
+        clearButton.innerText = 'Clear History';
+        clearButton.setAttribute('style', 'cursor: pointer;');
+
+        // Attach event listeners
+        toggleButton.addEventListener('click', function () {
+            autoReload = !autoReload;
+            GM_setValue('autoReload', autoReload);
+            toggleButton.innerText = autoReload ? 'Disable Autoplay' : 'Enable Autoplay';
+            if (autoReload) {
+                scheduleClick(nextAction, reloadDelay);
+            } else {
+                if (reloadTimeout) {
+                    clearTimeout(reloadTimeout);
+                    reloadTimeout = null;
                 }
-                return revealedCards;
-    }
+            }
+        });
 
-    function pickMove(board) {
-        const possiblePlays = findConsecutivePlays(board.stackCard, board);
-
-        if (possiblePlays.length === 0) {
-            return board.drawPile;
-        } else {
-            possiblePlays.sort((a,b) => {
-                return (countRevealedCards(b, board)-countRevealedCards(a, board))*1000000+(countRevealedCards([b[0]],board)-countRevealedCards([a[0]],board))*10000+(b[0].row-a[0].row);
+        clearButton.addEventListener('click', function () {
+            localStorage.removeItem('PyramidsGameHistory');
+            gameHistory = [];
+            const statValues = processGameHistory();
+            statValues.forEach((value, valueIndex) => {
+                statObjects[valueIndex].innerText = value;
             });
-            return possiblePlays[0][0];
-        }
+        });
+
+        buttonsDiv.appendChild(toggleButton);
+        buttonsDiv.appendChild(clearButton);
+
+
+        mainGameBoard.parentNode.insertBefore(buttonsDiv, mainGameBoard.nextSibling);
     }
 
-    function addStatsTable(mainGameBoard, gameHistory) {
+    function addStatsTable(mainGameBoard) {
 
         const columnWidths = ['150', '125', '125', '150']
 
@@ -303,6 +463,26 @@
         const dataRow = document.createElement('tr');
         dataRow.setAttribute('bgcolor', 'white');
 
+        const statValues = processGameHistory();
+
+        statObjects = [];
+
+
+        statValues.forEach((value, valueIndex) => {
+            const td = document.createElement('td');
+            td.setAttribute('align', 'center');
+            td.setAttribute('width', columnWidths[valueIndex]);
+            td.innerText = value;
+            dataRow.appendChild(td);
+            statObjects.push(td);
+        });
+        customStatsTable.appendChild(dataRow);
+
+
+        newCell.appendChild(customStatsTable);
+    }
+
+    function processGameHistory() {
         let statValues;
         const gamesRecorded = gameHistory.length;
         if (gamesRecorded === 0) {
@@ -319,93 +499,128 @@
 
             statValues = [gamesRecorded.toString(), gamesWon.toString(), `${winRate.toFixed(2)}%`, Math.round(avgScore).toString()];
         }
-
-        statValues.forEach((value, valueIndex) => {
-            const td = document.createElement('td');
-            td.setAttribute('align', 'center');
-            td.setAttribute('width', columnWidths[valueIndex]);
-            td.innerText = value;
-            dataRow.appendChild(td);
-        });
-        customStatsTable.appendChild(dataRow);
-
-
-        newCell.appendChild(customStatsTable);
+        return statValues;
     }
 
-    function addCustomButtons(mainGameBoard, isRunning) {
-        const buttonsDiv = document.createElement('div');
-        buttonsDiv.style.marginTop = '10px';
-        buttonsDiv.style.marginBottom = '10px';
-        buttonsDiv.style.textAlign = 'center';
-
-        // Create Toggle Script button
-        const toggleButton = document.createElement('button');
-        toggleButton.innerText = isRunning ? 'Disable Autoplay' : 'Enable Autoplay';
-        toggleButton.setAttribute('style', 'margin-right: 10px; cursor: pointer;');
-
-        // Create Clear History button
-        const clearButton = document.createElement('button');
-        clearButton.innerText = 'Clear History';
-        clearButton.setAttribute('style', 'cursor: pointer;');
-
-        // Attach event listeners
-        toggleButton.addEventListener('click', async function () {
-            await GM.setValue('isRunning', !isRunning);
-            location.reload();
-        });
-        clearButton.addEventListener('click', async function () {
-            localStorage.removeItem('PyramidsGameHistory');
-            location.reload();
-        });
-
-        buttonsDiv.appendChild(toggleButton);
-        buttonsDiv.appendChild(clearButton);
-
-
-        mainGameBoard.parentNode.insertBefore(buttonsDiv, mainGameBoard.nextSibling);
+    function scheduleClick(button, delay) {
+        if (autoReload && !reloadTimeout) {
+            reloadTimeout = setTimeout(() => {
+                button.click();
+            }, delay);
+        }
     }
 
-    // Wait until the DOM is fully loaded before initializing
-    window.addEventListener('load', async function () {
-        const isRunning = await GM.getValue("isRunning", false);
-
-        const gameHistory = JSON.parse(localStorage.getItem('PyramidsGameHistory')) || [];
-        console.log(gameHistory);
-
+    function determinePageType() {
         const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
-        const collectLink = document.querySelector('a[href^="pyramids.phtml?action=collect"]');
-        const playAgainButton = document.querySelector('input[type="submit"][value="Play Pyramids Again!"]');
-
-        let gameBoard;
+        const continueGameButton = document.querySelector('input[type="submit"][value="Continue Playing"]');
+        const playPyramidsButton = document.querySelector('input[type="submit"][value="Play Pyramids!"]');
+        const playPyramidsAgainButton = document.querySelector('input[type="submit"][value="Play Pyramids Again!"]');
 
         if (mainGameBoard) {
-            gameBoard = new Board(mainGameBoard);
-            addStatsTable(mainGameBoard, gameHistory);
-            addCustomButtons(mainGameBoard, isRunning);
+            return 'ACTIVE_GAME'; // Main game board 
+        } else if (continueGameButton) {
+            return 'CONTINUE_GAME'; // Continue game page
+        } else if (playPyramidsButton) {
+            return 'START_GAME'; // Start game page
+        } else if (playPyramidsAgainButton) {
+            return 'GAME_OVER'; // Game over page
+        } else {
+            return 'UNKNOWN';
         }
+    }
 
-        if (isRunning) {
+    var unseenCards = GM_getValue('unseenCards', (() => {
+        const suits = ['spades', 'clubs', 'diamonds', 'hearts'];
+        const deck = [];
 
-            await delay();
+        for (let suit of suits) {
+            for (let rank = 1; rank <= 13; rank++) {
+                deck.push({ suit: suit, rank: rank });
+            }
+        }
+        return deck;
+    })()).map(cardData => new Card(cardData.suit, cardData.rank));
 
-            if (playAgainButton) {
-                playAgainButton.click();
-            } else if (mainGameBoard && collectLink) {
-                let cardsLeft = gameBoard.getFaceDownCards().length + gameBoard.getFaceUpCards().length;
-                let won = (cardsLeft === 0);
-                let gameStats = { score: gameBoard.gamePoints, cardsLeft, won };
-                gameHistory.push(gameStats);
-                localStorage.setItem('PyramidsGameHistory', JSON.stringify(gameHistory));
-                collectLink.click();
-            } else if (mainGameBoard) {
-                const nextMove = pickMove(gameBoard);
-                nextMove.click();
-            } else {
-                await GM.deleteValue('isRunning');
+    // Add listener to stop autoplay when escape key is pressed
+    window.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            autoReload = false;
+            GM_setValue('autoReload', autoReload);
+            if (reloadTimeout) {
+                clearTimeout(reloadTimeout);
+                reloadTimeout = null;
+            }
+            if (toggleButton) {
+                toggleButton.innerText = 'Enable Autoplay';
             }
         }
     });
 
-})();
 
+    // Wait until the DOM is fully loaded before initializing
+    window.addEventListener('load', function () {
+        const pageType = determinePageType();
+
+        switch (pageType) {
+            case 'ACTIVE_GAME':
+                console.log('Active Game');
+                const mainGameBoard = document.querySelector('table[border="0"][width="550"][cellpadding="0"][cellspacing="1"][bgcolor="black"]');
+                addStatsTable(mainGameBoard);
+                addCustomButtons(mainGameBoard);
+
+
+                const game = new Game(mainGameBoard, unseenCards);
+                GM_setValue('unseenCards', game.unseenCards);
+
+
+                const collectLink = document.querySelector('a[href^="pyramids.phtml?action=collect"]');
+                if (collectLink) {
+                    nextAction = collectLink;
+                    GM_deleteValue('unseenCards');
+                    gameHistory.push({ score: game.gamePoints, cardsLeft: game.pyramid.cardsLeft(), won: (game.pyramid.cardsLeft() === 0) });
+                    localStorage.setItem('PyramidsGameHistory', JSON.stringify(gameHistory));
+                } else {
+                    const move = game.chooseMove();
+                    nextAction = move.link;
+                }
+                break;
+
+            case 'CONTINUE_GAME':
+                console.log('Continue Game');
+                const continuePlayingButton = document.querySelector('input[type="submit"][value="Continue Playing"]');
+                const cancelCurrentGameButton = document.querySelector('input[type="submit"][value="Cancel Current Game"]');
+                if (startNewGame) {
+                    nextAction = cancelCurrentGameButton;
+                    GM_deleteValue('unseenCards');
+                }
+                break;
+
+            case 'START_GAME':
+                console.log('Start Game');
+                const playPyramidsButton = document.querySelector('input[type="submit"][value="Play Pyramids!"]');
+                if (startNewGame) {
+                    GM_deleteValue('startNewGame');
+                    GM_deleteValue('unseenCards');
+                    nextAction = playPyramidsButton;
+                }
+                break;
+
+            case 'GAME_OVER':
+                console.log('Game Over');
+                const playPyramidsAgainButton = document.querySelector('input[type="submit"][value="Play Pyramids Again!"]');
+                nextAction = playPyramidsAgainButton;
+                GM_deleteValue('unseenCards');
+                break;
+
+            case 'UNKNOWN':
+                console.log('Unknown Page');
+                if (autoReload) {
+                    console.log('Starting new game!');
+                    GM_setValue('startNewGame', true);
+                    window.location.assign("https://www.neopets.com/games/pyramids/index.phtml");
+                }
+                break;
+        }
+        scheduleClick(nextAction, reloadDelay);
+    });
+})();
