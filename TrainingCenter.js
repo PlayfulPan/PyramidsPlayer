@@ -724,7 +724,7 @@ function determineStattoTrain(curStats, targetStats) {
         let curStats = avinoa.stats;
         curStats[4] = Number(curStats[4].split('/')[1]);
 
-        const targetStats = [100, 500, 100, 100, 100];
+        const targetStats = [100, 500, 100, 100, 500];
 
         switch (avinoa.status) {
             case Status.NOT_TRAINING:
