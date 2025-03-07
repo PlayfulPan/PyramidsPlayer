@@ -221,8 +221,8 @@ class Pet {
 
         this.updateFn = updateFn;
 
-        this.statButtons = [];
-        this.payButton = null;
+        this.statButtons = this.statCard.querySelectorAll('a');
+
     }
 
     displayName() {
@@ -392,8 +392,6 @@ ${CONFIG.oneStatColumn ? '</tr><tr>' : ''}
                 a.onclick = () => { alert('Cannot Train'); }
                 a.title = '';
             }
-
-            this.statButtons.push(a);
         }
     }
 
@@ -418,7 +416,7 @@ ${CONFIG.oneStatColumn ? '</tr><tr>' : ''}
             this.costs = [];
             newStatus = Status.NEEDS_PAYMENT;
             for (const paymentB of statusTd.getElementsByTagName('b')) {
-                if ((paymentB.innerText.includes('Dubloon')) || (paymentB.innerText.includes('Codestone'))) {
+                if (paymentB.innerText.includes('Dubloon') || paymentB.innerText.includes('Codestone')) {
                     this.costs.push(paymentB.innerText);
                 }
             }
@@ -435,9 +433,6 @@ ${CONFIG.oneStatColumn ? '</tr><tr>' : ''}
 </tr></tbody>`;
 
             for (const btn of this.payTbl.getElementsByTagName('button')) {
-                if (btn.innerText == 'Pay') {
-                    this.payButton = btn;
-                }
                 btn.onclick = () => {
                     log(`${this.displayName()} - ${btn.innerText}ing Course...`);
                     this.setLoading();
@@ -676,80 +671,104 @@ class TrainingTable {
     }
 }
 
+function determineStattoTrain(curStats, targetStats) {
+    // Find the stats which are lower than the target stats, then choose the one with the lowest value. Return the index of that stat.
+    let minStat = Infinity;
+    let minStatIndex = -1;
+    for (let i = 0; i < 5; i++) {
+        if (curStats[i] < targetStats[i] && curStats[i] < minStat) {
+            minStat = curStats[i];
+            minStatIndex = i;
+        }
+    }
+    return minStatIndex;
+}
 
 
-window.addEventListener('load', async function () {
+(function () {
     'use strict';
 
-    if (location.pathname == "/safetydeposit.phtml") {
-        Promise.every([fillSdbForm(), showCostsOnSdb()]).then(() => {
-            GM.deleteValue('trainingPayment');
-        });
-        return;
-    }
-
-    const content = document.getElementsByClassName('content')[0];
-    content.removeChild(content.children[0]);
-
-    const tbl = [...content.getElementsByTagName('table')].filter(tbl => tbl.width == '500')[0];
-
-    const trainingTable = new TrainingTable(tbl);
-
-    const final = trainingTable.render();
-    tbl.parentElement.insertBefore(final, tbl);
-    tbl.parentElement.insertBefore(trainingTable.renderCostTable(), final);
-
-    tbl.parentElement.removeChild(tbl);
-
-    const Avinoa = trainingTable.pets.filter(p => p.name == 'Avinoa')[0];
-    console.log(Avinoa.timeRemaining);
-    console.log(Avinoa.timeRemainingDiscount);
-    console.log(Avinoa.status);
-
-    // convert time remaining to milliseconds, account for if these variables are undefined
-    var timeRemaining = Avinoa.timeRemaining ? Avinoa.timeRemaining.split(':') : [0, 0, 0];
-    var timeRemainingDiscount = Avinoa.timeRemainingDiscount ? Avinoa.timeRemainingDiscount.split(':') : [0, 0, 0];
-    var timeRemainingMs = (timeRemaining[0] * 60 * 60 + timeRemaining[1] * 60 + timeRemaining[2]) * 1000;
-    var timeRemainingDiscountMs = (timeRemainingDiscount[0] * 60 * 60 + timeRemainingDiscount[1] * 60 + timeRemainingDiscount[2]) * 1000;
-    console.log(timeRemainingMs);
-    console.log(timeRemainingDiscountMs);
 
 
-    var currentStats = Avinoa.stats;
-    currentStats[4] = Number(currentStats[4].split('/')[1]);
-    console.log(currentStats);
-
-    const desiredStats = [259, 505, 167, 146, 505];
-
-    // select the course to train based on which stat has the highest deficit relative to the desired stats
-    var deficit = desiredStats.map((desired, i) => desired - currentStats[i]);
-    console.log(deficit);
-    var maxDeficit = Math.max(...deficit);
-    var course = deficit.indexOf(maxDeficit);
-    console.log(course);
-
-
-    if (true) {
-        if (Avinoa.status == Status.NOT_TRAINING) {
-            Avinoa.statButtons[course].click();
-            setTimeout(() => location.reload(), 10000);
+    window.addEventListener('load', function () {
+        if (location.pathname == "/safetydeposit.phtml") {
+            Promise.all([fillSdbForm(), showCostsOnSdb()]).then(() => {
+                GM.deleteValue('trainingPayment');
+            });
+            return;
         }
-        if (Avinoa.status == Status.NEEDS_PAYMENT) {
-            Avinoa.payButton.click();
-            setTimeout(() => location.reload(), 10000);
+        const content = document.querySelector('td.content');
+        content.removeChild(content.children[0]);
+
+        const tbl = [...content.getElementsByTagName('table')].filter(tbl => tbl.width == '500')[0];
+
+        const trainingTable = new TrainingTable(tbl);
+
+        const final = trainingTable.render();
+        tbl.parentElement.insertBefore(final, tbl);
+        tbl.parentElement.insertBefore(trainingTable.renderCostTable(), final);
+
+        tbl.parentElement.removeChild(tbl);
+
+        const pets = trainingTable.pets;
+        let avinoa;
+        for (const pet of pets) {
+            if (pet.name == 'Avinoa') {
+                avinoa = pet;
+            }
         }
-        if (Avinoa.status == Status.COMPLETE) {
-            Avinoa.completeCourseBtn.click();
-            setTimeout(() => location.reload(), 10000);
+        if (!avinoa) {
+            console.error('Avinoa not found!');
+            return;
         }
-        if (Avinoa.status == Status.IN_PROGRESS) {
-            if (timeRemainingDiscount) {
-                setTimeout(() => location.reload(), Math.min(timeRemainingDiscountMs, 600000));
-                console.log('Discounted time remaining:', timeRemainingDiscountMs);
-            } else if (timeRemaining) {
-                setTimeout(() => location.reload(), Math.min(timeRemainingMs, 600000));
-                console.log('Time remaining:', timeRemainingMs);
-            } 
+        let curStats = avinoa.stats;
+        curStats[4] = Number(curStats[4].split('/')[1]);
+
+        const targetStats = [100, 500, 100, 100, 100];
+
+        switch (avinoa.status) {
+            case Status.NOT_TRAINING:
+                const statToTrain = determineStattoTrain(curStats, targetStats);
+                if (statToTrain != -1) {
+                    avinoa.statButtons[statToTrain].click();
+                    setTimeout(() => {
+                        location.reload();
+                    }, 5000);
+                }
+                break;
+            case Status.NEEDS_PAYMENT:
+                const payButton = avinoa.payTbl.querySelectorAll('button')[0];
+                if (payButton) {
+                    payButton.click();
+                    setTimeout(() => {
+                        location.reload();
+                    }, 5000);
+                }
+                break;
+
+            case Status.COMPLETE:
+                avinoa.completeCourseBtn.click();
+                setTimeout(() => {
+                    location.reload();
+                }, 5000);
+                break;
+
+            case Status.IN_PROGRESS:
+                let timeRemaining;
+                if (avinoa.timeRemainingDiscount) {
+                    timeRemaining = avinoa.timeRemainingDiscount.split(':').map(Number);
+                } else {
+                    timeRemaining = avinoa.timeRemaining.split(':').map(Number);
+                }
+                let milisecondsRemaining = timeRemaining[0] * 3600000 + timeRemaining[1] * 60000 + timeRemaining[2] * 1000;
+                milisecondsRemaining = Math.min(milisecondsRemaining, 1000 * 60 * 10);
+                console.log('Waiting for', milisecondsRemaining/1000, 'seconds');
+                setTimeout(() => {
+                    location.reload();
+                }, milisecondsRemaining);
+                break;
         }
-    }
-});
+    });
+
+
+})();
